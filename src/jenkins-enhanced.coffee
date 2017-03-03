@@ -249,7 +249,7 @@ class HubotJenkinsPlugin extends HubotMessenger
   # Utility Methods
   # ---------------
 
-  _addJobsToJobsList: (jobs, server, outputStatus = false) =>
+   _addJobsToJobsList: (jobs, server, outputStatus = false) =>
     response = ""
     filter = new RegExp(@msg.match[2], 'i')
 
@@ -262,8 +262,20 @@ class HubotJenkinsPlugin extends HubotMessenger
         index = @_jobList.indexOf(job.name)
 
       state = if job.color == "red" then "FAIL" else "PASS"
+      
       if filter.test job.name
-        response += "[#{index + 1}] #{state} #{job.name} on #{server.url}\n"
+        @robot.logger.error job
+        text = "[#{index + 1}] #{state} #{job.name} on #{server.url}\n"
+
+        if @robot.adapterName is 'slack'
+          @msg.send({
+            attachments: [{
+              color: if state == "FAIL" then "#F44336" else "#4CAF50",
+              text: text
+            }]
+          });
+        else
+          response += text
 
     @send response if outputStatus
 
