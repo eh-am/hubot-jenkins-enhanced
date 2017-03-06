@@ -1,6 +1,8 @@
 # Hubot Jenkins Enhanced Plugin
 
-Jenkins integration for Hubot with multiple server support
+Jenkins integration for Hubot with multiple server support.
+
+*This is a fork for adding Slack formatting support, use at your own risk *
 
 
 ### Configuration

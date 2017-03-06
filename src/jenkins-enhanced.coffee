@@ -25,7 +25,7 @@
 #   hubot jenkins setAlias <name>, <value> - creates job name alias
 #
 # Author:
-#   wintondeshong
+#   wintondeshong, eh-am
 
 
 Array::where = (query) ->
@@ -41,7 +41,6 @@ Array::where = (query) ->
 class HubotMessenger
   constructor: (msg) ->
     @msg = msg
-
   msg: null
 
   _prefix: (message) =>
@@ -49,7 +48,7 @@ class HubotMessenger
 
   reply: (message, includePrefix = false) =>
     @msg.reply if includePrefix then @_prefix(message) else message
-
+    
   send: (message, includePrefix = false) =>
     @msg.send if includePrefix then @_prefix(message) else message
 
@@ -91,8 +90,8 @@ class JenkinsServer
 class JenkinsServerManager extends HubotMessenger
   _servers: []
 
-  constructor: (msg) ->
-    super msg
+  constructor: (msg, robot) ->
+    super msg, robot
     @_loadConfiguration()
 
   getServerByJobName: (jobName) =>
@@ -228,7 +227,28 @@ class HubotJenkinsPlugin extends HubotMessenger
 
   servers: =>
     return if not @_init(@servers)
-    @_serverManager.servers()
+
+    for server in  @_serverManager.listServers()
+      jobs = server.getJobs()
+      message = "- #{server.url}"
+
+      if @_isUsingSlack
+        message = { attachments: [] }
+        
+        jobsNames = ""
+      for job in jobs        
+        if @_isUsingSlack
+          jobsNames += "#{job.name}\n"
+        else
+          message += "\n-- #{job.name}" 
+
+      if @_isUsingSlack                   
+        message.attachments.push({
+          title: "#{server.url}",
+          text: jobsNames
+        })
+
+      @send message
 
   setAlias: =>
     aliases    = @_getSavedAliases()
@@ -249,8 +269,8 @@ class HubotJenkinsPlugin extends HubotMessenger
   # Utility Methods
   # ---------------
 
-   _addJobsToJobsList: (jobs, server, outputStatus = false) =>
-    response = ""
+  _addJobsToJobsList: (jobs, server, outputStatus = false) =>
+    response = if @_isUsingSlack then { attachments: [] } else ""
     filter = new RegExp(@msg.match[2], 'i')
 
     for job in jobs
@@ -262,22 +282,18 @@ class HubotJenkinsPlugin extends HubotMessenger
         index = @_jobList.indexOf(job.name)
 
       state = if job.color == "red" then "FAIL" else "PASS"
-      
+
       if filter.test job.name
-        @robot.logger.error job
-        text = "[#{index + 1}] #{state} #{job.name} on #{server.url}\n"
-
-        if @robot.adapterName is 'slack'
-          @msg.send({
-            attachments: [{
-              color: if state == "FAIL" then "#F44336" else "#4CAF50",
-              text: text
-            }]
-          });
+        if @_isUsingSlack
+          response.attachments.push({
+            color: @_getAttachmentColor(job.color)
+            text: "*[#{index + 1}] #{state}* _#{job.name}_ on #{server.url}\n",
+            mrkdwn_in: ["text"]
+          })
         else
-          response += text
-
-    @send response if outputStatus
+          response += "[#{index + 1}] #{state} #{job.name} on #{server.url}\n"
+    
+    @send response if outputStatus   
 
   _configureRequest: (request, server = null) =>
     defaultAuth = process.env.HUBOT_JENKINS_AUTH
@@ -289,14 +305,32 @@ class HubotJenkinsPlugin extends HubotMessenger
     request
 
   _describeJob: (job) =>
-    response = ""
-    response += "JOB: #{job.displayName}\n"
-    response += "URL: #{job.url}\n"
-    response += "DESCRIPTION: #{job.description}\n" if job.description
-    response += "ENABLED: #{job.buildable}\n"
-    response += "STATUS: #{job.color}\n"
-    response += @_describeJobHealthReport(job.healthReport)
-    response += @_describeJobActions(job.actions)
+    if @_isUsingSlack
+      response = { attachments: []}
+
+      text = "*JOB*: _#{job.displayName}_\n"
+      text += "*URL*: #{job.url}\n"
+      text += "*DESCRIPTION*: _#{job.description}_\n" if job.description
+      text += "*ENABLED*: _#{job.buildable}_\n"
+      text += "*STATUS*: _#{job.color}_\n"
+      text += @_describeJobHealthReport(job.healthReport)
+      text += @_describeJobActions(job.actions)
+
+      
+      response.attachments.push(
+        text: text,
+        color: @_getAttachmentColor(job.color),
+        mrkdwn_in: ["text"]
+      )
+    else
+      response = ""
+      response += "JOB: #{job.displayName}\n"
+      response += "URL: #{job.url}\n"
+      response += "DESCRIPTION: #{job.description}\n" if job.description
+      response += "ENABLED: #{job.buildable}\n"
+      response += "STATUS: #{job.color}\n"
+      response += @_describeJobHealthReport(job.healthReport)
+      response += @_describeJobActions(job.actions)
     response
 
   _describeJobActions: (actions) =>
@@ -308,18 +342,30 @@ class HubotJenkinsPlugin extends HubotMessenger
           tmpDefault = if param.defaultParameterValue then " (default=#{param.defaultParameterValue.value})" else ""
           parameters += "\n  #{param.name}#{tmpDescription}#{tmpDefault}"
 
-    parameters = "Unknown" if parameters == ""
-    "PARAMETERS: #{parameters}\n"
+    if parameters != "" then "PARAMETERS: #{parameters}\n" else ""
 
   _describeJobHealthReport: (healthReport) =>
     result = ""
     if healthReport.length > 0
       for report in healthReport
-        result += "\n  #{report.description}"
+        if @_isUsingSlack
+          result += "\n\t*Score:* #{report.score}/100 \n\t_#{report.description}_\n"
+        else
+          result += "\n #{report.description}"
     else
       result = " unknown"
 
-    "HEALTH: #{result}\n"
+    if @_isUsingSlack
+      "*HEALTH*: #{result}\n"
+    else  
+      "HEALTH: #{result}\n"
+
+  _getAttachmentColor: (color) =>
+    red = '#F44336'
+    blue = '#069'
+    c = switch
+      when color in ['red', 'FAILURE'] then red
+      when color in ['blue', 'SUCCESS'] then blue
 
   _getJob: (escape = false) =>
     job = @msg.match[1]
@@ -339,6 +385,9 @@ class HubotJenkinsPlugin extends HubotMessenger
     aliases ||= {}
     aliases
 
+  _isUsingSlack: =>
+   @robot.adapterName is 'slack'
+   
   _lastBuildStatus: (lastBuild) =>
     job = @_getJob()
     server = @_serverManager.getServerByJobName(job)
@@ -395,11 +444,31 @@ class HubotJenkinsPlugin extends HubotMessenger
 
     try
       content = JSON.parse(body)
-      response = ""
-      response += "NAME: #{content.fullDisplayName}\n"
-      response += "URL: #{content.url}\n"
-      response += "DESCRIPTION: #{content.description}\n" if content.description
-      response += "BUILDING: #{content.building}\n"
+
+      if @_isUsingSlack
+        response = { attachments:[] }
+        
+        text = ""
+        text += "*NAME*: _#{content.fullDisplayName}_\n"
+        text += "*URL*: #{content.url}\n"
+        text += "*DESCRIPTION*: #{content.description}\n" if content.description
+        text += "*BUILDING*: #{content.building}\n"
+
+        responseObject = { text: text, mrkdwn_in: ["text"]}
+
+        # if it's not building, let's use its last build status
+        if !content.building
+          responseObject.color =  @_getAttachmentColor(content.result)
+
+        response.attachments.push(responseObject)
+
+      else
+        response = ""
+        response += "NAME: #{content.fullDisplayName}\n"
+        response += "URL: #{content.url}\n"
+        response += "DESCRIPTION: #{content.description}\n" if content.description
+        response += "BUILDING: #{content.building}\n"      
+
       @send response
     catch error
       @send error
@@ -412,10 +481,19 @@ class HubotJenkinsPlugin extends HubotMessenger
     try
       response = ""
       content = JSON.parse(body)
-      console.log(JSON.stringify(content, null, 4))
       jobstatus = content.result || 'PENDING'
       jobdate = new Date(content.timestamp);
-      response += "LAST JOB: #{jobstatus}, #{jobdate}\n"
+
+      if @_isUsingSlack
+        response = {
+          attachments:[{
+            color: @_getAttachmentColor(jobstatus)
+            text: "*LAST JOB*: *#{jobstatus}* at #{jobdate}\n"
+            mrkdwn_in: ["text"]
+          }] 
+        }        
+      else
+        response += "LAST JOB: #{jobstatus}, #{jobdate}\n"
 
       @send response
     catch error
@@ -447,7 +525,7 @@ module.exports = (robot) ->
 
   _serverManager = null
   serverManagerFactory = (msg) ->
-    _serverManager = new JenkinsServerManager(msg) if not _serverManager
+    _serverManager = new JenkinsServerManager(msg, robot) if not _serverManager
     _serverManager.setMessage msg
     _serverManager
 
@@ -462,31 +540,31 @@ module.exports = (robot) ->
   # Command Configuration
   # ---------------------
 
-  robot.respond /j(?:enkins)? aliases/i, id: 'jenkins.aliases', (msg) ->
+  robot.respond /j(?:enkins)? aliases/i, (msg) ->
     pluginFactory(msg).listAliases()
 
-  robot.respond /j(?:enkins)? build ([\w\.\-_ ]+)(, (.+))?/i, id: 'jenkins.build', (msg) ->
+  robot.respond /j(?:enkins)? build ([\w\.\-_ ]+)(, (.+))?/i, (msg) ->
     pluginFactory(msg).build false
 
-  robot.respond /j(?:enkins)? b (\d+)/i, id: 'jenkins.b', (msg) ->
+  robot.respond /j(?:enkins)? b (\d+)/i, (msg) ->
     pluginFactory(msg).buildById()
 
-  robot.respond /j(?:enkins)? list( (.+))?/i, id: 'jenkins.list', (msg) ->
+  robot.respond /j(?:enkins)? list( (.+))?/i, (msg) ->
     pluginFactory(msg).list()
 
-  robot.respond /j(?:enkins)? describe (.*)/i, id: 'jenkins.describe', (msg) ->
+  robot.respond /j(?:enkins)? describe (.*)/i, (msg) ->
     pluginFactory(msg).describe()
 
-  robot.respond /j(?:enkins)? getAlias (.*)/i, id: 'jenkins.getAlias', (msg) ->
+  robot.respond /j(?:enkins)? getAlias (.*)/i, (msg) ->
     pluginFactory(msg).getAlias()
 
-  robot.respond /j(?:enkins)? last (.*)/i, id: 'jenkins.last', (msg) ->
+  robot.respond /j(?:enkins)? last (.*)/i, (msg) ->
     pluginFactory(msg).last()
 
-  robot.respond /j(?:enkins)? servers/i, id: 'jenkins.servers', (msg) ->
+  robot.respond /j(?:enkins)? servers/i, (msg) ->
     pluginFactory(msg).servers()
 
-  robot.respond /j(?:enkins)? setAlias (.*), (.*)/i, id: 'jenkins.setAlias', (msg) ->
+  robot.respond /j(?:enkins)? setAlias (.*), (.*)/i, (msg) ->
     pluginFactory(msg).setAlias()
 
   robot.jenkins =
