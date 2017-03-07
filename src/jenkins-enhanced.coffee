@@ -417,7 +417,16 @@ class HubotJenkinsPlugin extends HubotMessenger
     else if 200 <= res.statusCode < 400 # Or, not an error code.
       job     = @_getJob(true)
       jobName = @_getJob(false)
-      @reply "(#{res.statusCode}) Build started for #{jobName} #{server.url}/job/#{job}"
+
+      if @_isUsingSlack
+        message = { attachments: [] }
+        message.attachments.push({
+          text: "*(#{res.statusCode})* Build started for _#{jobName}_ on #{server.url}/job/#{job}"
+          mrkdwn_in: ["text"]
+        })
+        @send message
+      else
+        @reply "(#{res.statusCode}) Build started for #{jobName} #{server.url}/job/#{job}"      
     else if 400 == res.statusCode
       @build true
     else
