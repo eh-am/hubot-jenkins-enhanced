@@ -2,18 +2,21 @@
   "name": "hubot-jenkins-enhanced",
   "description": "Jenkins integration for Hubot with multiple server support",
   "version": "1.1.2",
-  "author": "Winton De Shong <contact@winton.me>",
+  "author": "eh-am <eduardo@translucentcomputing.com>",
   "license": "MIT",
+  "publishConfig" : {
+    "registry" : "https://nexus.tekstack.ca/repository/npm-hosted/"
+  },  
   "keywords": [
     "hubot",
     "hubot-scripts"
   ],
   "repository": {
     "type": "git",
-    "url": "git://github.com/codeandfury/hubot-jenkins-enhanced.git"
+    "url": "git://github.com/eh-am/hubot-jenkins-enhanced.git"
   },
   "bugs": {
-    "url": "https://github.com/codeandfury/hubot-jenkins-enhanced/issues"
+    "url": "https://github.com/eh-am/hubot-jenkins-enhanced/issues"
   },
   "dependencies": {
     "coffee-script": "~1.6"

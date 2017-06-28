@@ -2,7 +2,7 @@
 
 Jenkins integration for Hubot with multiple server support.
 
-*This is a fork for adding Slack formatting support, use at your own risk *
+*This is a fork from [codeandfury/hubot-jenkins-enhanced](https://github.com/codeandfury/hubot-jenkins-enhanced), use at your own risk. I haven't published it to NPM.
 
 
 ### Configuration
