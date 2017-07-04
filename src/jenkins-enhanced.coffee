@@ -27,7 +27,6 @@
 # Author:
 #   wintondeshong, eh-am
 
-
 Array::where = (query) ->
   return [] if typeof query isnt "object"
   hit = Object.keys(query).length
@@ -269,32 +268,58 @@ class HubotJenkinsPlugin extends HubotMessenger
   # Utility Methods
   # ---------------
 
-  _addJobsToJobsList: (jobs, server, outputStatus = false) =>
+  # NOT THE BEST IMPLEMENTATION
+  _listHandleJobsFolder: (content, server, print) => 
+    if (content._class == 'com.cloudbees.hudson.plugins.folder.Folder')
+      folder = content.name
+      baseUrl = "job/#{content.name}/"
+    else
+      folder = ""
+      baseUrl = ""
+
     response = if @_isUsingSlack then { attachments: [] } else ""
+
+    for job in content.jobs
+      if job._class == 'com.cloudbees.hudson.plugins.folder.Folder'
+        url = "#{baseUrl}job/#{job.name}/api/json"
+        @_requestFactorySingle server, url, @_handleList
+      else
+        job.folder = folder
+        formattedJob = @_addJobToJobsList job, server, print
+        
+        if formattedJob
+          if @_isUsingSlack
+            response.attachments.push formattedJob
+          else
+            response += formattedJob
+          
+    @send response if response.length || response.attachments.length
+
+  _addJobToJobsList: (job, server, outputStatus = false) => 
     filter = new RegExp(@msg.match[2], 'i')
 
-    for job in jobs
-      # Add the job to the @_jobList
-      server.addJob(job)
+    jobName = @_querystring.unescape(job.url.split('/job').splice(1).join(""))
+
+    server.addJob(job)
+    index = @_jobList.indexOf(jobName)
+    if index == -1
+      @_jobList.push jobName
       index = @_jobList.indexOf(job.name)
-      if index == -1
-        @_jobList.push job.name
-        index = @_jobList.indexOf(job.name)
 
-      state = if job.color == "red" then "FAIL" else "PASS"
+    state = if job.color == "red" then "FAIL" else "PASS"
 
-      if filter.test job.name
-        if @_isUsingSlack
-          response.attachments.push({
-            color: @_getAttachmentColor(job.color)
-            text: "*[#{index + 1}] #{state}* _#{job.name}_ on #{server.url}\n",
-            mrkdwn_in: ["text"]
-          })
-        else
-          response += "[#{index + 1}] #{state} #{job.name} on #{server.url}\n"
+    if filter.test jobName
+      if @_isUsingSlack
+        response = {
+          color: @_getAttachmentColor(job.color)
+          text: "*#{state}* _#{jobName}_ on #{server.url}\n",
+          mrkdwn_in: ["text"]
+        }
+      else
+        response += "*#{state} #{jobName} on #{server.url}\n"
+
+    response if outputStatus
     
-    @send response if outputStatus   
-
   _configureRequest: (request, server = null) =>
     defaultAuth = process.env.HUBOT_JENKINS_AUTH
     return if not server and not defaultAuth
@@ -521,14 +546,14 @@ class HubotJenkinsPlugin extends HubotMessenger
 
     try
       content = JSON.parse(body)
-      @_addJobsToJobsList content.jobs, server, print
+      @_listHandleJobsFolder content, server, print
+
       @_initComplete() if @_serverManager.hasInitialized()
     catch error
       @send error
 
 
 module.exports = (robot) ->
-
   # Factories
   # ---------
 
